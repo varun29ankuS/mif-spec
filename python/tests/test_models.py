@@ -25,12 +25,12 @@ class TestEntityReference:
         assert er.entity_type == "unknown"
         assert er.confidence == 1.0
 
-    def test_to_dict_omits_defaults(self):
+    def test_to_dict_includes_defaults(self):
         er = EntityReference(name="Alice")
         d = er.to_dict()
-        assert d == {"name": "Alice"}
-        assert "entity_type" not in d
-        assert "confidence" not in d
+        assert d == {"name": "Alice", "entity_type": "unknown", "confidence": 1.0}
+        assert "entity_type" in d
+        assert "confidence" in d
 
     def test_to_dict_includes_non_defaults(self):
         er = EntityReference(name="Alice", entity_type="person", confidence=0.8)

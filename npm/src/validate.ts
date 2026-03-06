@@ -24,15 +24,159 @@ function parseIso8601(s: unknown): Date | null {
 }
 
 // ---------------------------------------------------------------------------
-// Schema validation (structural)
+// Load bundled schema
+// ---------------------------------------------------------------------------
+
+let _cachedSchema: any = null;
+
+function loadSchema(): any {
+  if (_cachedSchema) return _cachedSchema;
+  // Try bundled schema (npm package install) then dev layout
+  const candidates = [
+    path.join(__dirname, "..", "schema", "mif-v2.schema.json"),
+    path.join(__dirname, "..", "..", "schema", "mif-v2.schema.json"),
+  ];
+  for (const p of candidates) {
+    try {
+      _cachedSchema = JSON.parse(fs.readFileSync(p, "utf-8"));
+      return _cachedSchema;
+    } catch {}
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Schema validation helpers — validate against bundled JSON Schema
+// ---------------------------------------------------------------------------
+
+function validateType(value: unknown, typeDef: string | string[]): boolean {
+  const types = Array.isArray(typeDef) ? typeDef : [typeDef];
+  for (const t of types) {
+    if (t === "string" && typeof value === "string") return true;
+    if (t === "number" && typeof value === "number") return true;
+    if (t === "integer" && typeof value === "number" && Number.isInteger(value)) return true;
+    if (t === "boolean" && typeof value === "boolean") return true;
+    if (t === "object" && typeof value === "object" && value !== null && !Array.isArray(value)) return true;
+    if (t === "array" && Array.isArray(value)) return true;
+    if (t === "null" && value === null) return true;
+  }
+  return false;
+}
+
+function validateValue(value: unknown, schemaDef: any, pathStr: string, errors: string[], defs: any): void {
+  if (!schemaDef || typeof schemaDef !== "object") return;
+
+  // Handle $ref
+  if (schemaDef.$ref) {
+    const refPath = schemaDef.$ref.replace("#/$defs/", "");
+    const resolved = defs[refPath];
+    if (resolved) {
+      validateValue(value, resolved, pathStr, errors, defs);
+    }
+    return;
+  }
+
+  // Handle oneOf
+  if (schemaDef.oneOf) {
+    let matched = false;
+    for (const option of schemaDef.oneOf) {
+      const tempErrors: string[] = [];
+      validateValue(value, option, pathStr, tempErrors, defs);
+      if (tempErrors.length === 0) { matched = true; break; }
+    }
+    if (!matched) {
+      errors.push(`[${pathStr}] value does not match any of the allowed types.`);
+    }
+    return;
+  }
+
+  // Type check
+  if (schemaDef.type) {
+    if (!validateType(value, schemaDef.type)) {
+      errors.push(`[${pathStr}] expected type '${schemaDef.type}', got '${value === null ? "null" : typeof value}'.`);
+      return;
+    }
+  }
+
+  // Pattern
+  if (schemaDef.pattern && typeof value === "string") {
+    if (!new RegExp(schemaDef.pattern).test(value)) {
+      errors.push(`[${pathStr}] value '${value}' does not match pattern '${schemaDef.pattern}'.`);
+    }
+  }
+
+  // Enum
+  if (schemaDef.enum && !schemaDef.enum.includes(value)) {
+    errors.push(`[${pathStr}] value '${value}' is not one of: ${schemaDef.enum.join(", ")}.`);
+  }
+
+  // Const
+  if (schemaDef.const !== undefined && value !== schemaDef.const) {
+    errors.push(`[${pathStr}] value must be '${schemaDef.const}'.`);
+  }
+
+  // Minimum / maximum for numbers
+  if (typeof value === "number") {
+    if (schemaDef.minimum !== undefined && value < schemaDef.minimum) {
+      errors.push(`[${pathStr}] value ${value} is less than minimum ${schemaDef.minimum}.`);
+    }
+    if (schemaDef.maximum !== undefined && value > schemaDef.maximum) {
+      errors.push(`[${pathStr}] value ${value} is greater than maximum ${schemaDef.maximum}.`);
+    }
+  }
+
+  // Format checks (uuid, date-time)
+  if (schemaDef.format && typeof value === "string") {
+    if (schemaDef.format === "uuid" && !UUID_RE.test(value)) {
+      errors.push(`[${pathStr}] value '${value}' is not a valid UUID.`);
+    }
+    if (schemaDef.format === "date-time" && parseIso8601(value) === null) {
+      errors.push(`[${pathStr}] value '${value}' is not a valid date-time.`);
+    }
+  }
+
+  // Object validation
+  if (schemaDef.type === "object" && typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+
+    // Required fields
+    if (schemaDef.required) {
+      for (const req of schemaDef.required) {
+        if (!(req in obj)) {
+          errors.push(`[${pathStr}] missing required field '${req}'.`);
+        }
+      }
+    }
+
+    // Validate known properties
+    if (schemaDef.properties) {
+      for (const [key, propSchema] of Object.entries(schemaDef.properties)) {
+        if (key in obj) {
+          validateValue(obj[key], propSchema, pathStr ? `${pathStr} -> ${key}` : key, errors, defs);
+        }
+      }
+    }
+  }
+
+  // Array validation
+  if (schemaDef.type === "array" && Array.isArray(value)) {
+    if (schemaDef.items) {
+      for (let i = 0; i < value.length; i++) {
+        validateValue(value[i], schemaDef.items, `${pathStr}[${i}]`, errors, defs);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Schema validation (structural) — validates against bundled JSON Schema
 // ---------------------------------------------------------------------------
 
 /**
  * Validate a MIF JSON string against the bundled JSON Schema.
  *
- * This performs basic structural checks without requiring an external
- * JSON Schema library.  It validates required fields, types, and key
- * constraints from the MIF v2 schema.
+ * Loads `mif-v2.schema.json` and validates the document structure,
+ * required fields, types, formats, and patterns.
  *
  * @returns `[true, []]` when valid, `[false, errors]` otherwise.
  */
@@ -48,44 +192,15 @@ export function validate(data: string): [boolean, string[]] {
     return [false, ["Document root must be a JSON object."]];
   }
 
+  const schema = loadSchema();
+  if (!schema) {
+    return [false, ["Schema file not found. Ensure mif-v2.schema.json is available."]];
+  }
+
   const errors: string[] = [];
+  const defs = schema.$defs || {};
 
-  // mif_version
-  if (!document.mif_version) {
-    errors.push("Missing required field: 'mif_version'.");
-  } else if (typeof document.mif_version !== "string") {
-    errors.push("'mif_version' must be a string.");
-  } else if (!/^2\./.test(document.mif_version)) {
-    errors.push(`'mif_version' must start with '2.' (got '${document.mif_version}').`);
-  }
-
-  // memories
-  if (!("memories" in document)) {
-    errors.push("Missing required field: 'memories'.");
-  } else if (!Array.isArray(document.memories)) {
-    errors.push("'memories' must be an array.");
-  } else {
-    for (let i = 0; i < document.memories.length; i++) {
-      const mem = document.memories[i];
-      if (typeof mem !== "object" || mem === null || Array.isArray(mem)) {
-        errors.push(`memories[${i}]: must be a JSON object.`);
-        continue;
-      }
-      if (!mem.id) errors.push(`memories[${i}]: missing required field 'id'.`);
-      if (!mem.content && mem.content !== "") errors.push(`memories[${i}]: missing required field 'content'.`);
-      if (!mem.created_at) errors.push(`memories[${i}]: missing required field 'created_at'.`);
-    }
-  }
-
-  // generator
-  if (document.generator !== undefined && document.generator !== null) {
-    if (typeof document.generator !== "object" || Array.isArray(document.generator)) {
-      errors.push("'generator' must be an object.");
-    } else {
-      if (!document.generator.name) errors.push("generator: missing required field 'name'.");
-      if (!document.generator.version) errors.push("generator: missing required field 'version'.");
-    }
-  }
+  validateValue(document, schema, "(root)", errors, defs);
 
   return errors.length === 0 ? [true, []] : [false, errors];
 }

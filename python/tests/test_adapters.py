@@ -249,7 +249,7 @@ class TestMem0Adapter:
         doc = self.adapter.to_mif(data)
         assert doc.export_meta is None
 
-    def test_to_mif_metadata_values_stringified(self):
+    def test_to_mif_metadata_values_preserved(self):
         data = json.dumps([{
             "id": str(uuid.uuid4()),
             "memory": "Test",
@@ -258,8 +258,8 @@ class TestMem0Adapter:
         }])
         doc = self.adapter.to_mif(data)
         meta = doc.memories[0].metadata
-        assert meta["count"] == "42"
-        assert meta["flag"] == "True"
+        assert meta["count"] == 42
+        assert meta["flag"] is True
 
     # ── from_mif ──
 
@@ -353,13 +353,13 @@ class TestGenericJsonAdapter:
         doc = self.adapter.to_mif(data)
         assert "2025-06-15" in doc.memories[0].created_at
 
-    def test_to_mif_metadata_stringified(self):
+    def test_to_mif_metadata_preserved(self):
         data = json.dumps([{
             "content": "Test",
             "metadata": {"level": 5},
         }])
         doc = self.adapter.to_mif(data)
-        assert doc.memories[0].metadata["level"] == "5"
+        assert doc.memories[0].metadata["level"] == 5
 
     def test_to_mif_source_set(self, generic_json):
         doc = self.adapter.to_mif(generic_json)

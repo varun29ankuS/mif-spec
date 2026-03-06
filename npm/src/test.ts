@@ -321,9 +321,9 @@ console.log("\n--- Mem0Adapter.toMif: category mappings ---");
   ]);
   const doc = mem0.toMif(data);
   assert(doc.memories[0].metadata?.str === "hello", "mem0 toMif: string metadata preserved as-is");
-  assert(doc.memories[0].metadata?.num === "42", "mem0 toMif: number metadata stringified");
-  assert(doc.memories[0].metadata?.obj === '{"nested":true}', "mem0 toMif: object metadata JSON-stringified");
-  assert(doc.memories[0].metadata?.arr === "[1,2]", "mem0 toMif: array metadata JSON-stringified");
+  assert(doc.memories[0].metadata?.num === 42, "mem0 toMif: number metadata preserved");
+  assert(JSON.stringify(doc.memories[0].metadata?.obj) === '{"nested":true}', "mem0 toMif: object metadata preserved");
+  assert(JSON.stringify(doc.memories[0].metadata?.arr) === '[1,2]', "mem0 toMif: array metadata preserved");
 }
 
 // -- toMif: tags from metadata --
@@ -502,7 +502,7 @@ console.log("\n--- GenericJsonAdapter.toMif ---");
   const data = JSON.stringify([{ content: "meta", metadata: { str: "val", num: 7 } }]);
   const doc = generic.toMif(data);
   assert(doc.memories[0].metadata?.str === "val", "generic toMif: string metadata preserved");
-  assert(doc.memories[0].metadata?.num === "7", "generic toMif: non-string metadata stringified");
+  assert(doc.memories[0].metadata?.num === 7, "generic toMif: non-string metadata preserved");
 }
 
 // -- toMif: empty content skip --
