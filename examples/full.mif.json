@@ -24,6 +24,10 @@
       "entities": [
         { "name": "dark mode", "entity_type": "concept", "confidence": 1.0 }
       ],
+      "metadata": {
+        "importance": 0.85,
+        "access_count": 12
+      },
       "embeddings": {
         "model": "minilm-l6-v2",
         "dimensions": 384,
@@ -44,6 +48,9 @@
       "content": "Project architecture: Rust core with RocksDB storage, MiniLM embeddings, and custom Hebbian knowledge graph",
       "memory_type": "context",
       "created_at": "2026-02-01T09:00:00Z",
+      "updated_at": "2026-02-15T11:00:00Z",
+      "agent_id": "claude-code-prod",
+      "external_id": "mem0:abc123def456",
       "tags": ["architecture", "rust", "rocksdb"],
       "entities": [
         { "name": "Rust", "entity_type": "technology", "confidence": 0.99 },

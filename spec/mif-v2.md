@@ -97,7 +97,7 @@ Each entry in the `memories` array:
 
 ### 2.1 Memory Types
 
-Lowercase snake_case strings. Standard types:
+Lowercase snake_case strings. Common types seen across implementations:
 
 | Type           | Description                                   |
 | -------------- | --------------------------------------------- |
@@ -108,7 +108,7 @@ Lowercase snake_case strings. Standard types:
 | `context`      | Session or project context                    |
 | `conversation` | Conversation excerpt or summary               |
 
-Implementations MUST accept unknown types without error and SHOULD preserve them on round-trip.
+This list is **non-exhaustive**. Implementations will define their own types (e.g., `task`, `discovery`, `pattern`, `code_edit`). Implementations MUST accept unknown types without error and MUST preserve them on round-trip.
 
 ### 2.2 Entity References
 
@@ -116,9 +116,9 @@ Implementations MUST accept unknown types without error and SHOULD preserve them
 { "name": "RocksDB", "entity_type": "technology", "confidence": 0.95 }
 ```
 
-Standard entity types: `person`, `organization`, `location`, `technology`, `concept`, `event`, `product`, `unknown`.
+Common entity types: `person`, `organization`, `location`, `technology`, `concept`, `event`, `product`, `unknown`.
 
-Implementations MUST accept unknown entity types.
+This list is **non-exhaustive**. Implementations MUST accept unknown entity types and MUST preserve them on round-trip.
 
 ### 2.3 Embeddings
 
@@ -127,6 +127,7 @@ Optional. When present, `model` identifies the embedding model used.
 - Importers using the **same model** MAY reuse the vector directly.
 - Importers using a **different model** SHOULD discard the vector and regenerate from `content`.
 - Importers **without embedding capability** SHOULD ignore this field entirely.
+- The `dimensions` field declares the model's output dimensionality. In examples, vectors are truncated for readability. Production vectors MUST have exactly `dimensions` elements.
 
 ## 3. Knowledge Graph (Optional)
 
@@ -160,7 +161,7 @@ For systems that maintain entity relationships:
 }
 ```
 
-Systems without graph support SHOULD omit this field. Systems that encounter unknown fields SHOULD preserve them on round-trip.
+Systems without graph support SHOULD omit this field entirely (not set to null). Systems that encounter unknown fields MUST preserve them on round-trip. Implementations MAY add additional arrays (e.g., `episodes`) — consumers MUST ignore fields they do not understand.
 
 ## 4. Vendor Extensions
 
@@ -191,7 +192,7 @@ The `export_meta.privacy` field communicates PII handling:
 
 When PII redaction is requested, implementations SHOULD replace detected PII with `[REDACTED:type]` markers and record types in `redacted_fields`.
 
-Recognized categories: `email`, `phone`, `ssn`, `api_key`, `credit_card`.
+Common categories: `email`, `phone`, `ssn`, `api_key`, `credit_card`. Implementations MAY define additional categories.
 
 ## 6. Import Behavior
 
@@ -248,6 +249,17 @@ Implementations SHOULD validate incoming MIF documents against this schema befor
 **Why vendor extensions?** Different memory systems track different metadata. Extensions preserve this without requiring all implementers to understand every system's internals.
 
 **Why content-hash dedup?** UUIDs may collide when importing from systems that generate new IDs on export. Content hash catches true semantic duplicates regardless of ID scheme.
+
+## Extensibility
+
+MIF is designed to be vendor-agnostic. The schema uses `additionalProperties: true` at every level. This means:
+
+- Implementations MAY add fields at any level (top-level, memory, graph entity, relationship, source)
+- Consumers MUST ignore fields they do not understand
+- Consumers MUST preserve unknown fields on round-trip when possible
+- System-specific metadata SHOULD go in `vendor_extensions`, but additional top-level or nested fields are valid
+
+The type lists (memory types, entity types, PII categories) are non-exhaustive examples. Each memory system will have its own vocabulary. MIF does not mandate a closed set — it provides common labels for interoperability where they overlap.
 
 ## Backward Compatibility
 
