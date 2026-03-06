@@ -1,6 +1,6 @@
 {
   "name": "@varunshodh/mif-tools",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "MIF (Memory Interchange Format) — vendor-neutral memory portability for AI agents",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -25,7 +25,11 @@
     "portability",
     "mif",
     "mem0",
-    "cognitive"
+    "crewai",
+    "langchain",
+    "llm",
+    "ai-memory",
+    "model-context-protocol"
   ],
   "author": "Varun Sharma <varun29ankus@gmail.com>",
   "license": "Apache-2.0",
