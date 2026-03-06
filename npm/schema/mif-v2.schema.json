@@ -8,8 +8,8 @@
   "properties": {
     "mif_version": {
       "type": "string",
-      "const": "2.0",
-      "description": "MIF specification version"
+      "pattern": "^2\\.",
+      "description": "MIF specification version (any 2.x)"
     },
     "generator": {
       "type": "object",

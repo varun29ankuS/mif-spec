@@ -2,6 +2,7 @@
 
 import * as fs from "fs";
 import { load, dump, listFormats } from "./index";
+import { validate, validateDeep } from "./validate";
 import type { MifDocument } from "./models";
 
 const args = process.argv.slice(2);
@@ -65,22 +66,29 @@ function cmdValidate(): void {
   for (const filepath of files) {
     try {
       const data = fs.readFileSync(filepath, "utf-8");
-      const parsed = JSON.parse(data);
 
-      const errors: string[] = [];
-      if (parsed.mif_version !== "2.0") errors.push("mif_version must be '2.0'");
-      if (!Array.isArray(parsed.memories)) errors.push("memories must be an array");
+      const [schemaOk, schemaErrors] = validate(data);
+      if (!schemaOk) {
+        console.log(`FAIL ${filepath}: ${schemaErrors.length} error(s)`);
+        for (const err of schemaErrors.slice(0, 5)) console.log(`     ${err}`);
+        if (schemaErrors.length > 5) console.log(`     ... and ${schemaErrors.length - 5} more`);
+        continue;
+      }
 
-      if (errors.length === 0) {
-        const doc = parsed as MifDocument;
-        const hasGraph = doc.knowledge_graph != null;
-        const hasExt = doc.vendor_extensions && Object.keys(doc.vendor_extensions).length > 0;
+      const doc = load(data);
+      const hasGraph = doc.knowledge_graph != null;
+      const hasExt = doc.vendor_extensions && Object.keys(doc.vendor_extensions).length > 0;
+
+      const [deepOk, deepWarnings] = validateDeep(data);
+      if (deepOk) {
         console.log(`PASS ${filepath}`);
         console.log(`     ${doc.memories.length} memories, graph=${hasGraph ? "yes" : "no"}, extensions=${hasExt ? "yes" : "no"}`);
-        passed++;
       } else {
-        console.log(`FAIL ${filepath}: ${errors.join(", ")}`);
+        console.log(`WARN ${filepath}: schema OK, ${deepWarnings.length} semantic warning(s)`);
+        for (const w of deepWarnings.slice(0, 5)) console.log(`     ${w}`);
+        if (deepWarnings.length > 5) console.log(`     ... and ${deepWarnings.length - 5} more`);
       }
+      passed++;
     } catch (e: any) {
       console.log(`FAIL ${filepath}: ${e.message}`);
     }

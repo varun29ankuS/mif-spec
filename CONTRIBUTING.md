@@ -6,13 +6,18 @@ The most impactful way to contribute is writing adapters for memory systems. An 
 
 ### Writing an Adapter
 
-1. Create a directory under `adapters/` named after the system (e.g., `adapters/crewai/`)
-2. Include:
-   - Export function: system format -> MIF JSON
-   - Import function: MIF JSON -> system format
-   - README with usage examples
-   - Test file with sample data
-3. Validate output against `schema/mif-v2.schema.json`
+**Python:** Add a new adapter class in `python/mif/adapters.py` that extends `MifAdapter`.
+**TypeScript:** Add a new adapter class in `npm/src/adapters.ts` that implements `MifAdapter`.
+
+Each adapter must implement:
+- `name()` / `format_id()` — identifier and human-readable name
+- `detect(data)` — return True if this adapter can handle the input
+- `to_mif(data)` — convert external format to MifDocument
+- `from_mif(doc)` — convert MifDocument to external format
+
+Register the adapter in `python/mif/registry.py` and `npm/src/index.ts`.
+
+Validate output against `schema/mif-v2.schema.json`.
 
 ### Adapter Guidelines
 

@@ -133,10 +133,10 @@ def validate(data: str) -> tuple[bool, list[str]]:
     Returns:
         Tuple of (is_valid, list_of_error_messages).
     """
-    schema_path = Path(__file__).parent.parent.parent / "schema" / "mif-v2.schema.json"
+    # Try bundled schema first (works when pip-installed), then dev layout
+    schema_path = Path(__file__).parent / "schema" / "mif-v2.schema.json"
     if not schema_path.exists():
-        # Try relative to package install
-        schema_path = Path(__file__).parent / "schema" / "mif-v2.schema.json"
+        schema_path = Path(__file__).parent.parent.parent / "schema" / "mif-v2.schema.json"
     if not schema_path.exists():
         return False, ["Schema file not found. Install jsonschema and ensure schema is available."]
 
@@ -433,3 +433,37 @@ def validate_deep(data: str) -> tuple[bool, list[str]]:
     if warnings:
         return False, warnings
     return True, []
+
+
+def deduplicate(doc: MifDocument) -> tuple[MifDocument, int]:
+    """Deduplicate memories by SHA-256 content hash.
+
+    Per the MIF spec (section 6), implementations SHOULD deduplicate by
+    content hash rather than UUID collision.
+
+    Args:
+        doc: The MIF document to deduplicate.
+
+    Returns:
+        Tuple of (deduplicated document, number of duplicates removed).
+    """
+    seen_hashes: set[str] = set()
+    unique_memories: list = []
+
+    for mem in doc.memories:
+        content_hash = hashlib.sha256(mem.content.encode("utf-8")).hexdigest()
+        if content_hash not in seen_hashes:
+            seen_hashes.add(content_hash)
+            unique_memories.append(mem)
+
+    removed = len(doc.memories) - len(unique_memories)
+    deduped = MifDocument(
+        mif_version=doc.mif_version,
+        memories=unique_memories,
+        generator=doc.generator,
+        export_meta=doc.export_meta,
+        knowledge_graph=doc.knowledge_graph,
+        vendor_extensions=doc.vendor_extensions,
+        _extra=doc._extra,
+    )
+    return deduped, removed

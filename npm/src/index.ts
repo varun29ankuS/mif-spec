@@ -21,6 +21,33 @@ export {
   MarkdownAdapter,
 } from "./adapters";
 
+export { validate, validateDeep } from "./validate";
+
+import { createHash } from "crypto";
+
+/**
+ * Deduplicate memories by SHA-256 content hash.
+ * Per MIF spec section 6, deduplication uses content hash, not UUID collision.
+ *
+ * @returns `[deduplicatedDoc, duplicatesRemoved]`
+ */
+export function deduplicate(doc: MifDocument): [MifDocument, number] {
+  const seenHashes = new Set<string>();
+  const unique: typeof doc.memories = [];
+
+  for (const mem of doc.memories) {
+    const hash = createHash("sha256").update(mem.content).digest("hex");
+    if (!seenHashes.has(hash)) {
+      seenHashes.add(hash);
+      unique.push(mem);
+    }
+  }
+
+  const removed = doc.memories.length - unique.length;
+  const deduped: MifDocument = { ...doc, memories: unique };
+  return [deduped, removed];
+}
+
 import {
   MifAdapter,
   ShodhAdapter,

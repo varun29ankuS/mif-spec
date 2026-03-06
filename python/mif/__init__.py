@@ -1,7 +1,7 @@
 """MIF (Memory Interchange Format) — vendor-neutral memory portability for AI agents."""
 
 from mif.models import MifDocument, Memory, KnowledgeGraph, GraphEntity, GraphRelationship
-from mif.registry import AdapterRegistry, load, dump, convert, validate, validate_deep
+from mif.registry import AdapterRegistry, load, dump, convert, validate, validate_deep, deduplicate
 
 __version__ = "0.1.0"
 __all__ = [
@@ -16,4 +16,5 @@ __all__ = [
     "convert",
     "validate",
     "validate_deep",
+    "deduplicate",
 ]

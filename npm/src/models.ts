@@ -84,20 +84,11 @@ export interface MifDocument {
 /** Create a minimal Memory object with defaults. */
 export function createMemory(partial: Partial<Memory> & { content: string }): Memory {
   return {
+    ...partial,
     id: partial.id || randomUUID(),
     content: partial.content,
     created_at: partial.created_at || new Date().toISOString(),
     memory_type: partial.memory_type || "observation",
-    tags: partial.tags,
-    entities: partial.entities,
-    metadata: partial.metadata,
-    embeddings: partial.embeddings,
-    source: partial.source,
-    parent_id: partial.parent_id,
-    related_memory_ids: partial.related_memory_ids,
-    agent_id: partial.agent_id,
-    external_id: partial.external_id,
-    version: partial.version,
   };
 }
 

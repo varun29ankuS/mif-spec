@@ -53,10 +53,12 @@ export class ShodhAdapter implements MifAdapter {
     const parsed = JSON.parse(data);
     const version = parsed.mif_version || "";
 
-    if (version.startsWith("1")) {
+    if (version === "1" || version.startsWith("1.")) {
       return this.convertV1(parsed);
     }
     // v2 or treat as v2
+    if (!parsed.mif_version) parsed.mif_version = "2.0";
+    if (!Array.isArray(parsed.memories)) parsed.memories = [];
     return parsed as MifDocument;
   }
 
@@ -118,19 +120,22 @@ export class Mem0Adapter implements MifAdapter {
 
       if (!userId && item.user_id) userId = item.user_id;
 
-      const metadata: Record<string, string> = {};
+      const metadata: Record<string, unknown> = {};
       if (item.metadata && typeof item.metadata === "object") {
         for (const [k, v] of Object.entries(item.metadata)) {
-          metadata[k] = typeof v === "string" ? v : JSON.stringify(v);
+          metadata[k] = v;
         }
       }
 
-      const category = metadata.category || "";
+      const category = (typeof metadata.category === "string" ? metadata.category : "") as string;
       const memoryType = typeMap[category] || "observation";
 
-      const tags: string[] = metadata.tags
-        ? metadata.tags.split(",").map((t: string) => t.trim()).filter(Boolean)
-        : [];
+      const rawTags = metadata.tags;
+      const tags: string[] = typeof rawTags === "string"
+        ? rawTags.split(",").map((t: string) => t.trim()).filter(Boolean)
+        : Array.isArray(rawTags)
+          ? rawTags.map(String)
+          : [];
 
       memories.push({
         id: ensureUuid(item.id),
@@ -198,10 +203,10 @@ export class GenericJsonAdapter implements MifAdapter {
       const created_at = parseDate(item.timestamp || item.created_at || item.date);
       const tags: string[] = Array.isArray(item.tags) ? item.tags.map(String) : [];
 
-      const metadata: Record<string, string> = {};
+      const metadata: Record<string, unknown> = {};
       if (item.metadata && typeof item.metadata === "object") {
         for (const [k, v] of Object.entries(item.metadata)) {
-          metadata[k] = typeof v === "string" ? v : JSON.stringify(v);
+          metadata[k] = v;
         }
       }
 
@@ -257,7 +262,7 @@ export class MarkdownAdapter implements MifAdapter {
     const memories: Memory[] = [];
 
     for (const [frontmatter, body] of blocks) {
-      const content = body.trim();
+      const content = body.trim().replace(/\\---/g, "---");
       if (!content) continue;
 
       const fm = parseFrontmatter(frontmatter);
@@ -299,13 +304,16 @@ export class MarkdownAdapter implements MifAdapter {
     const parts: string[] = [];
     for (const m of doc.memories) {
       let block = "---\n";
+      block += `id: ${m.id}\n`;
       block += `type: ${m.memory_type || "observation"}\n`;
       block += `created_at: ${m.created_at}\n`;
       if (m.tags && m.tags.length > 0) {
-        block += `tags: [${m.tags.join(", ")}]\n`;
+        const quoted = m.tags.map(t => t.includes(",") ? `"${t}"` : t);
+        block += `tags: [${quoted.join(", ")}]\n`;
       }
       block += "---\n";
-      block += m.content + "\n";
+      const escaped = m.content.split("\n").map(line => line.trim() === "---" ? "\\---" : line).join("\n");
+      block += escaped + "\n";
       parts.push(block);
     }
     return parts.join("\n");

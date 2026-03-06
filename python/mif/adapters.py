@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
@@ -42,6 +41,8 @@ def _parse_datetime(s: str | None) -> str:
         return datetime.now(timezone.utc).isoformat()
     try:
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
         return dt.isoformat()
     except (ValueError, AttributeError):
         return datetime.now(timezone.utc).isoformat()
@@ -158,7 +159,7 @@ class Mem0Adapter(MifAdapter):
             metadata: dict[str, Any] = {}
             if isinstance(item.get("metadata"), dict):
                 for k, v in item["metadata"].items():
-                    metadata[k] = str(v) if not isinstance(v, str) else v
+                    metadata[k] = v  # preserve original type
 
             # Map category to memory type
             category = metadata.get("category", "")
@@ -175,10 +176,14 @@ class Mem0Adapter(MifAdapter):
             }
             memory_type = type_map.get(category, "observation")
 
-            # Extract tags from metadata
+            # Extract tags from metadata (handles both string and list)
             tags = []
             if "tags" in metadata:
-                tags = [t.strip() for t in metadata["tags"].split(",") if t.strip()]
+                raw_tags = metadata["tags"]
+                if isinstance(raw_tags, list):
+                    tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+                elif isinstance(raw_tags, str):
+                    tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
 
             memories.append(Memory(
                 id=mem_id,
@@ -264,7 +269,7 @@ class GenericJsonAdapter(MifAdapter):
             metadata: dict[str, Any] = {}
             if isinstance(item.get("metadata"), dict):
                 for k, v in item["metadata"].items():
-                    metadata[k] = str(v) if not isinstance(v, str) else v
+                    metadata[k] = v  # preserve original type
 
             memories.append(Memory(
                 id=mem_id,
@@ -303,6 +308,23 @@ class GenericJsonAdapter(MifAdapter):
 # Markdown adapter (YAML frontmatter)
 # ---------------------------------------------------------------------------
 
+def _escape_md_separators(text: str) -> str:
+    """Escape lines that are exactly ``---`` so they don't break frontmatter parsing."""
+    lines = text.split("\n")
+    out = []
+    for line in lines:
+        if line.strip() == "---":
+            out.append(line.replace("---", "\\---"))
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _unescape_md_separators(text: str) -> str:
+    """Reverse the escaping applied by :func:`_escape_md_separators`."""
+    return text.replace("\\---", "---")
+
+
 class MarkdownAdapter(MifAdapter):
     def name(self) -> str:
         return "Markdown (YAML frontmatter)"
@@ -318,7 +340,7 @@ class MarkdownAdapter(MifAdapter):
         memories = []
 
         for frontmatter, body in blocks:
-            content = body.strip()
+            content = _unescape_md_separators(body.strip())
             if not content:
                 continue
 
@@ -361,12 +383,14 @@ class MarkdownAdapter(MifAdapter):
         parts = []
         for m in doc.memories:
             block = "---\n"
+            block += f"id: {m.id}\n"
             block += f"type: {m.memory_type}\n"
             block += f"created_at: {m.created_at}\n"
             if m.tags:
-                block += f"tags: [{', '.join(m.tags)}]\n"
+                quoted_tags = [f'"{t}"' if "," in t else t for t in m.tags]
+                block += f"tags: [{', '.join(quoted_tags)}]\n"
             block += "---\n"
-            block += m.content + "\n"
+            block += _escape_md_separators(m.content) + "\n"
             parts.append(block)
         return "\n".join(parts)
 

@@ -33,8 +33,12 @@ Everything else — memory types, tags, entities, embeddings, knowledge graph, v
 ## Install
 
 ```bash
+# Python
 pip install mif-tools              # core (zero dependencies)
 pip install mif-tools[validate]    # with JSON Schema validation
+
+# Node.js / TypeScript
+npm install @varunshodh/mif-tools
 ```
 
 ## Convert Between Formats

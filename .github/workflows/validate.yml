@@ -123,6 +123,12 @@ jobs:
           print('schema validation: PASS')
           "
 
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run Python test suite
+        run: pytest python/tests/ -v
+
   npm:
     name: npm Package
     runs-on: ubuntu-latest

@@ -16,10 +16,8 @@ class EntityReference:
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {"name": self.name}
-        if self.entity_type != "unknown":
-            d["entity_type"] = self.entity_type
-        if self.confidence != 1.0:
-            d["confidence"] = self.confidence
+        d["entity_type"] = self.entity_type
+        d["confidence"] = self.confidence
         return d
 
     @classmethod
@@ -120,13 +118,13 @@ class Memory:
             d["embeddings"] = self.embeddings.to_dict()
         if self.source:
             d["source"] = self.source.to_dict()
-        if self.parent_id:
+        if self.parent_id is not None:
             d["parent_id"] = self.parent_id
         if self.related_memory_ids:
             d["related_memory_ids"] = self.related_memory_ids
-        if self.agent_id:
+        if self.agent_id is not None:
             d["agent_id"] = self.agent_id
-        if self.external_id:
+        if self.external_id is not None:
             d["external_id"] = self.external_id
         if self.version != 1:
             d["version"] = self.version

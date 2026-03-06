@@ -8,8 +8,8 @@
   "properties": {
     "mif_version": {
       "type": "string",
-      "const": "2.0",
-      "description": "MIF specification version"
+      "pattern": "^2\\.",
+      "description": "MIF specification version (any 2.x)"
     },
     "generator": {
       "type": "object",
@@ -17,7 +17,8 @@
         "name": { "type": "string" },
         "version": { "type": "string" }
       },
-      "required": ["name", "version"]
+      "required": ["name", "version"],
+      "additionalProperties": true
     },
     "export_meta": {
       "type": "object",
@@ -25,7 +26,7 @@
         "id": { "type": "string", "format": "uuid" },
         "created_at": { "type": "string", "format": "date-time" },
         "user_id": { "type": "string" },
-        "checksum": { "type": "string", "pattern": "^sha256:[a-f0-9]+$" },
+        "checksum": { "type": "string", "pattern": "^sha256:[a-fA-F0-9]+$" },
         "privacy": {
           "type": "object",
           "properties": {
@@ -34,9 +35,11 @@
               "type": "array",
               "items": { "type": "string" }
             }
-          }
+          },
+          "additionalProperties": true
         }
-      }
+      },
+      "additionalProperties": true
     },
     "memories": {
       "type": "array",
@@ -152,7 +155,8 @@
         },
         "normalized": { "type": "boolean" }
       },
-      "required": ["model", "dimensions", "vector"]
+      "required": ["model", "dimensions", "vector"],
+      "additionalProperties": true
     },
     "source": {
       "type": "object",
@@ -160,7 +164,8 @@
         "source_type": { "type": "string" },
         "session_id": { "type": "string" },
         "agent_name": { "type": "string" }
-      }
+      },
+      "additionalProperties": true
     },
     "knowledge_graph": {
       "type": "object",
@@ -173,7 +178,8 @@
           "type": "array",
           "items": { "$ref": "#/$defs/graph_relationship" }
         }
-      }
+      },
+      "additionalProperties": true
     },
     "graph_entity": {
       "type": "object",

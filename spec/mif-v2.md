@@ -7,6 +7,8 @@
 
 **Note:** v2.0 is the first public release. The "v2" numbering reflects internal iterations during development. There is no public v1 specification.
 
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
+
 ## Abstract
 
 MIF is a vendor-neutral JSON schema for exchanging AI agent memories between systems. It defines a minimal, extensible envelope for memories and optional knowledge graph data, enabling portability across providers.
@@ -93,7 +95,11 @@ Each entry in the `memories` array:
 
 **Required:** `id` (UUID v4), `content` (string), `created_at` (ISO 8601)
 
-**Optional:** Everything else.
+**Optional:** Everything else. Notable optional fields:
+
+- `updated_at` — ISO 8601 timestamp of last modification. If absent, consumers SHOULD treat `created_at` as the last-modified time.
+
+The `content` field is plain text by default. Implementations MAY use `metadata.content_type` (e.g., `text/markdown`) to indicate alternative formats.
 
 ### 2.1 Memory Types
 
@@ -207,7 +213,7 @@ Import result:
 {
   "memories_imported": 150,
   "entities_imported": 45,
-  "edges_imported": 78,
+  "relationships_imported": 78,
   "duplicates_skipped": 3,
   "errors": []
 }
@@ -260,6 +266,12 @@ MIF is designed to be vendor-agnostic. The schema uses `additionalProperties: tr
 - System-specific metadata SHOULD go in `vendor_extensions`, but additional top-level or nested fields are valid
 
 The type lists (memory types, entity types, PII categories) are non-exhaustive examples. Each memory system will have its own vocabulary. MIF does not mandate a closed set — it provides common labels for interoperability where they overlap.
+
+## Versioning
+
+- **Minor versions (2.x)** are additive only — new optional fields, no removal or semantic changes to existing fields. No breaking changes.
+- A v2.0 consumer SHOULD accept any v2.x document by ignoring unknown fields.
+- **Major versions (3.0+)** MAY introduce breaking changes — field removals, type changes, or altered semantics.
 
 ## Backward Compatibility
 

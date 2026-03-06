@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from mif.registry import AdapterRegistry, load, dump, validate
+from mif.registry import AdapterRegistry, load, dump, validate, validate_deep
 
 
 def main():
@@ -72,9 +72,21 @@ def cmd_validate(args):
             doc = load(data)
             has_graph = doc.knowledge_graph is not None
             has_ext = bool(doc.vendor_extensions)
-            print(f"PASS {filepath}")
-            print(f"     {len(doc.memories)} memories, graph={'yes' if has_graph else 'no'}, extensions={'yes' if has_ext else 'no'}")
-            passed += 1
+
+            # Run semantic (deep) validation
+            deep_valid, deep_warnings = validate_deep(data)
+
+            if deep_valid:
+                print(f"PASS {filepath}")
+                print(f"     {len(doc.memories)} memories, graph={'yes' if has_graph else 'no'}, extensions={'yes' if has_ext else 'no'}")
+                passed += 1
+            else:
+                print(f"WARN {filepath}: schema OK, {len(deep_warnings)} semantic warning(s)")
+                for w in deep_warnings[:5]:
+                    print(f"     {w}")
+                if len(deep_warnings) > 5:
+                    print(f"     ... and {len(deep_warnings) - 5} more")
+                passed += 1  # schema passed, semantic warnings are non-fatal
         else:
             print(f"FAIL {filepath}: {len(errors)} error(s)")
             for err in errors[:5]:
