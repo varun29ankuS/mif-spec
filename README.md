@@ -1,5 +1,11 @@
 # Memory Interchange Format (MIF)
 
+[![PyPI](https://img.shields.io/pypi/v/mif-tools?label=PyPI&logo=python&logoColor=white)](https://pypi.org/project/mif-tools/)
+[![npm](https://img.shields.io/npm/v/@varunshodh/mif-tools?label=npm&logo=npm&logoColor=white)](https://www.npmjs.com/package/@varunshodh/mif-tools)
+[![License](https://img.shields.io/github/license/varun29ankuS/mif-spec)](https://github.com/varun29ankuS/mif-spec/blob/main/LICENSE)
+[![Tests](https://img.shields.io/github/actions/workflow/status/varun29ankuS/mif-spec/validate.yml?label=tests&logo=github)](https://github.com/varun29ankuS/mif-spec/actions/workflows/validate.yml)
+[![Docs](https://img.shields.io/github/actions/workflow/status/varun29ankuS/mif-spec/pages.yml?label=docs&logo=github)](https://varun29ankus.github.io/mif-spec/)
+
 **Your AI agent has 6 months of memories in System A. You want to try System B. Without MIF, you lose everything. With MIF:**
 
 ```bash
@@ -36,6 +42,7 @@ Everything else — memory types, tags, entities, embeddings, knowledge graph, v
 # Python
 pip install mif-tools              # core (zero dependencies)
 pip install mif-tools[validate]    # with JSON Schema validation
+pip install mif-tools[mcp]         # with MCP server
 
 # Node.js / TypeScript
 npm install @varunshodh/mif-tools
@@ -113,6 +120,8 @@ def import_memories(data: str) -> dict:
 |--------|----|-------------|-------------|
 | **MIF v2** | `shodh` | `"mif_version"` in JSON | Native format, lossless round-trip |
 | **mem0** | `mem0` | JSON array with `"memory"` field | mem0 memory exports |
+| **CrewAI** | `crewai` | JSON array with `"task_description"` | CrewAI LTMSQLiteStorage exports |
+| **LangChain** | `langchain` | JSON array with `"namespace"` + `"value"` | LangChain/LangMem Item format |
 | **Generic JSON** | `generic` | JSON array with `"content"` field | Any JSON memory array |
 | **Markdown** | `markdown` | Starts with `---` | YAML frontmatter (Letta/Obsidian style) |
 
@@ -129,17 +138,29 @@ MIF supports optional fields for rich memory data:
 
 Full specification: [`spec/mif-v2.md`](./spec/mif-v2.md) | JSON Schema: [`schema/mif-v2.schema.json`](./schema/mif-v2.schema.json)
 
+## MCP Server
+
+Expose MIF tools to any MCP-compatible AI client:
+
+```bash
+pip install mif-tools[mcp]
+mif mcp
+```
+
+Tools: `export_memories`, `import_memories`, `validate_memories`, `inspect_memories`, `list_formats`
+
 ## Adapters & Implementations
 
 | System | Status | Type |
 |--------|--------|------|
 | [shodh-memory](https://github.com/varun29ankuS/shodh-memory) | Production | Built-in HTTP API (`/api/export/mif`, `/api/import/mif`) |
-| [mif-tools](https://pypi.org/project/mif-tools/) | Production | Python package with CLI |
-| mem0 | Adapter ready | Python + [Rust](https://github.com/varun29ankuS/shodh-memory/blob/main/src/mif/adapters/mem0.rs) |
-| Markdown (YAML frontmatter) | Adapter ready | Python + [Rust](https://github.com/varun29ankuS/shodh-memory/blob/main/src/mif/adapters/markdown.rs) |
-| Generic JSON | Adapter ready | Python + [Rust](https://github.com/varun29ankuS/shodh-memory/blob/main/src/mif/adapters/generic.rs) |
-| CrewAI | Planned | — |
-| LangChain | Planned | — |
+| [mif-tools (PyPI)](https://pypi.org/project/mif-tools/) | Production | Python package with CLI + MCP server |
+| [@varunshodh/mif-tools (npm)](https://www.npmjs.com/package/@varunshodh/mif-tools) | Production | TypeScript/Node.js package with CLI |
+| mem0 | Adapter ready | Python + npm |
+| CrewAI | Adapter ready | Python + npm |
+| LangChain | Adapter ready | Python + npm |
+| Generic JSON | Adapter ready | Python + npm |
+| Markdown (YAML frontmatter) | Adapter ready | Python + npm |
 
 ## Design Principles
 
@@ -154,10 +175,12 @@ We welcome adapter implementations for any memory system. See [CONTRIBUTING.md](
 
 ## Related
 
+- [Documentation](https://varun29ankus.github.io/mif-spec/) — Full docs site
 - [MCP SEP #2342](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2342) — Original proposal to the Model Context Protocol
 - [tower-mcp #531](https://github.com/joshrotenberg/tower-mcp/issues/531) — Tracking issue in tower-mcp
 - [shodh-memory](https://github.com/varun29ankuS/shodh-memory) — Reference implementation (Rust)
 - [mif-tools on PyPI](https://pypi.org/project/mif-tools/) — Python package
+- [@varunshodh/mif-tools on npm](https://www.npmjs.com/package/@varunshodh/mif-tools) — npm package
 
 ## License
 
