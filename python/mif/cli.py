@@ -33,6 +33,9 @@ def main():
     # formats
     subparsers.add_parser("formats", help="List available formats")
 
+    # mcp
+    subparsers.add_parser("mcp", help="Start MIF MCP server (requires pip install mif-tools[mcp])")
+
     args = parser.parse_args()
 
     if args.command == "convert":
@@ -43,6 +46,8 @@ def main():
         cmd_inspect(args)
     elif args.command == "formats":
         cmd_formats()
+    elif args.command == "mcp":
+        cmd_mcp()
     else:
         parser.print_help()
         sys.exit(1)
@@ -137,6 +142,15 @@ def cmd_formats():
     print("Usage:")
     print("  mif convert input.json --from mem0 --to shodh -o output.mif.json")
     print("  mif convert input.json --to markdown    # auto-detect source")
+
+
+def cmd_mcp():
+    try:
+        from mif.mcp_server import main as mcp_main
+        mcp_main()
+    except ImportError:
+        print("MCP dependencies not installed. Run: pip install mif-tools[mcp]")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

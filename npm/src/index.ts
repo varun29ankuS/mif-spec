@@ -17,6 +17,8 @@ export type { MifAdapter } from "./adapters";
 export {
   ShodhAdapter,
   Mem0Adapter,
+  CrewAIAdapter,
+  LangChainAdapter,
   GenericJsonAdapter,
   MarkdownAdapter,
 } from "./adapters";
@@ -28,6 +30,8 @@ import {
   MifAdapter,
   ShodhAdapter,
   Mem0Adapter,
+  CrewAIAdapter,
+  LangChainAdapter,
   GenericJsonAdapter,
   MarkdownAdapter,
 } from "./adapters";
@@ -53,6 +57,8 @@ export class AdapterRegistry {
     this.adapters = [
       new ShodhAdapter(),
       new Mem0Adapter(),
+      new CrewAIAdapter(),
+      new LangChainAdapter(),
       new GenericJsonAdapter(),
       new MarkdownAdapter(),
     ];

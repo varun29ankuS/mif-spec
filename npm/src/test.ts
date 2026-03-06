@@ -12,6 +12,8 @@ import {
 import {
   ShodhAdapter,
   Mem0Adapter,
+  CrewAIAdapter,
+  LangChainAdapter,
   GenericJsonAdapter,
   MarkdownAdapter,
 } from "./adapters";
@@ -870,7 +872,7 @@ console.log("\n--- listFormats() ---");
 
 {
   const fmts = listFormats();
-  assert(fmts.length === 4, "listFormats: returns 4 formats");
+  assert(fmts.length === 6, "listFormats: returns 6 formats");
   const ids = fmts.map(f => f.formatId);
   assert(ids.includes("shodh"), "listFormats: includes shodh");
   assert(ids.includes("mem0"), "listFormats: includes mem0");
@@ -1294,6 +1296,183 @@ console.log("\n=== Edge Cases ===");
   const v1NoVersion = JSON.stringify({ mif_version: "1", memories: [{ content: "x" }] });
   const doc = load(v1NoVersion, "shodh");
   assert(doc.generator?.version === "1", "edge: v1 generator version from source mif_version");
+}
+
+// ===================================================================
+// CrewAI Adapter Tests
+// ===================================================================
+console.log("\n--- CrewAI Adapter ---");
+
+const crewai = new CrewAIAdapter();
+const crewaiJson = JSON.stringify([
+  {
+    task_description: "User prefers dark mode for all IDEs",
+    metadata: JSON.stringify({ category: "preference", tool: "vscode" }),
+    datetime: "1718452800.0",
+    score: 0.95,
+  },
+  {
+    task_description: "Project uses PostgreSQL 16",
+    metadata: JSON.stringify({ category: "fact" }),
+    datetime: "1718539200.0",
+    score: 0.88,
+  },
+]);
+
+// detect
+assert(crewai.detect(crewaiJson), "crewai: detect crewai format");
+assert(!crewai.detect('[{"memory":"hello"}]'), "crewai: reject mem0");
+assert(!crewai.detect('{"task_description": "x"}'), "crewai: reject object");
+assert(!crewai.detect('[{"content":"hello"}]'), "crewai: reject generic");
+
+// toMif
+{
+  const doc = crewai.toMif(crewaiJson);
+  assert(doc.memories.length === 2, "crewai: toMif produces 2 memories");
+  assert(doc.generator?.name === "crewai-import", "crewai: generator name");
+  assert(doc.memories[0].content === "User prefers dark mode for all IDEs", "crewai: content mapped");
+  assert((doc.memories[0].metadata as any)?.category === "preference", "crewai: metadata parsed");
+  assert((doc.memories[0].metadata as any)?.score === 0.95, "crewai: score in metadata");
+  assert(doc.memories[0].memory_type === "observation", "crewai: memory type is observation");
+  assert(doc.memories[0].source?.source_type === "crewai", "crewai: source type");
+  assert(doc.memories[0].created_at.includes("2024-06-15"), "crewai: unix timestamp converted");
+  assert(doc.memories[0].id.length === 36, "crewai: generates UUID");
+}
+
+// toMif with dict metadata
+{
+  const data = JSON.stringify([{ task_description: "Test", metadata: { key: "value" } }]);
+  const doc = crewai.toMif(data);
+  assert((doc.memories[0].metadata as any)?.key === "value", "crewai: dict metadata preserved");
+}
+
+// toMif with invalid JSON metadata
+{
+  const data = JSON.stringify([{ task_description: "Test", metadata: "not json" }]);
+  const doc = crewai.toMif(data);
+  assert((doc.memories[0].metadata as any)?.raw === "not json", "crewai: invalid JSON metadata stored as raw");
+}
+
+// toMif skips empty
+{
+  const data = JSON.stringify([{ task_description: "" }, { task_description: "real" }]);
+  const doc = crewai.toMif(data);
+  assert(doc.memories.length === 1, "crewai: skips empty task_description");
+}
+
+// fromMif
+{
+  const doc = crewai.toMif(crewaiJson);
+  const output = crewai.fromMif(doc);
+  const items = JSON.parse(output);
+  assert(items.length === 2, "crewai: fromMif produces 2 items");
+  assert(items[0].task_description === "User prefers dark mode for all IDEs", "crewai: fromMif content");
+  assert("datetime" in items[0], "crewai: fromMif has datetime");
+  assert("metadata" in items[0], "crewai: fromMif has metadata");
+}
+
+// fromMif empty
+{
+  const doc: MifDocument = { mif_version: "2.0", memories: [] };
+  const output = crewai.fromMif(doc);
+  assertDeepEqual(JSON.parse(output), [], "crewai: fromMif empty");
+}
+
+// ===================================================================
+// LangChain Adapter Tests
+// ===================================================================
+console.log("\n--- LangChain Adapter ---");
+
+const langchain = new LangChainAdapter();
+const langchainJson = JSON.stringify([
+  {
+    namespace: ["memories", "user-prefs"],
+    key: "pref-dark-mode",
+    value: { kind: "Memory", content: "User prefers dark mode" },
+    created_at: "2025-06-15T12:00:00Z",
+    updated_at: "2025-06-15T13:00:00Z",
+    score: 0.9,
+  },
+  {
+    namespace: ["memories"],
+    key: "fact-postgres",
+    value: { kind: "Fact", content: "Project uses PostgreSQL" },
+    created_at: "2025-06-16T10:00:00Z",
+  },
+]);
+
+// detect
+assert(langchain.detect(langchainJson), "langchain: detect langchain format");
+assert(!langchain.detect('[{"memory":"hello"}]'), "langchain: reject mem0");
+assert(!langchain.detect('{"namespace": [], "value": {}}'), "langchain: reject object");
+assert(!langchain.detect('[{"content":"hello"}]'), "langchain: reject generic");
+
+// toMif
+{
+  const doc = langchain.toMif(langchainJson);
+  assert(doc.memories.length === 2, "langchain: toMif produces 2 memories");
+  assert(doc.generator?.name === "langchain-import", "langchain: generator name");
+  assert(doc.memories[0].content === "User prefers dark mode", "langchain: content from value");
+  assert(doc.memories[0].memory_type === "observation", "langchain: Memory kind → observation");
+  assert(doc.memories[1].memory_type === "learning", "langchain: Fact kind → learning");
+  assertDeepEqual(doc.memories[0].tags, ["memories", "user-prefs"], "langchain: namespace → tags");
+  assert(doc.memories[0].external_id === "pref-dark-mode", "langchain: key → external_id");
+  assert((doc.memories[0].metadata as any)?.score === 0.9, "langchain: score in metadata");
+  assert(doc.memories[0].updated_at != null, "langchain: updated_at preserved");
+  assert(doc.memories[0].source?.source_type === "langchain", "langchain: source type");
+  assert(doc.memories[0].id.length === 36, "langchain: generates UUID");
+}
+
+// toMif with string value
+{
+  const data = JSON.stringify([{
+    namespace: ["test"],
+    key: "k1",
+    value: "plain text content",
+    created_at: "2025-01-01T00:00:00Z",
+  }]);
+  const doc = langchain.toMif(data);
+  assert(doc.memories[0].content === "plain text content", "langchain: string value as content");
+}
+
+// toMif skips empty content
+{
+  const data = JSON.stringify([
+    { namespace: [], key: "k1", value: { content: "" } },
+    { namespace: [], key: "k2", value: { content: "real" } },
+  ]);
+  const doc = langchain.toMif(data);
+  assert(doc.memories.length === 1, "langchain: skips empty content");
+}
+
+// fromMif
+{
+  const doc = langchain.toMif(langchainJson);
+  const output = langchain.fromMif(doc);
+  const items = JSON.parse(output);
+  assert(items.length === 2, "langchain: fromMif produces 2 items");
+  assert(items[0].value.content === "User prefers dark mode", "langchain: fromMif value.content");
+  assert(items[0].value.kind === "Observation", "langchain: fromMif value.kind capitalized");
+  assert(Array.isArray(items[0].namespace), "langchain: fromMif has namespace array");
+  assert("key" in items[0], "langchain: fromMif has key");
+}
+
+// fromMif default namespace
+{
+  const doc: MifDocument = {
+    mif_version: "2.0",
+    memories: [{ id: "11111111-2222-3333-4444-555555555555", content: "x", created_at: "2025-01-01T00:00:00Z" }],
+  };
+  const output = langchain.fromMif(doc);
+  const items = JSON.parse(output);
+  assertDeepEqual(items[0].namespace, ["memories"], "langchain: fromMif default namespace");
+}
+
+// fromMif empty
+{
+  const doc: MifDocument = { mif_version: "2.0", memories: [] };
+  const output = langchain.fromMif(doc);
+  assertDeepEqual(JSON.parse(output), [], "langchain: fromMif empty");
 }
 
 // ===================================================================

@@ -1,0 +1,21 @@
+title: MIF — Memory Interchange Format
+description: A vendor-neutral JSON schema for portable AI agent memories
+remote_theme: just-the-docs/just-the-docs
+
+url: "https://varun29ankus.github.io"
+baseurl: "/mif-spec"
+
+aux_links:
+  "GitHub":
+    - "https://github.com/varun29ankuS/mif-spec"
+  "PyPI":
+    - "https://pypi.org/project/mif-tools/"
+  "npm":
+    - "https://www.npmjs.com/package/@varunshodh/mif-tools"
+
+nav_enabled: true
+search_enabled: true
+
+footer_content: "MIF is open source under the Apache 2.0 License."
+
+color_scheme: dark
