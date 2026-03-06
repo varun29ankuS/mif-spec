@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.egg-info/
+dist/
+build/
+*.pyc
+
+# Node
+node_modules/
+npm/dist/
+npm/package-lock.json
+
+# IDE
+.vscode/
+.idea/
