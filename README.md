@@ -1,30 +1,19 @@
 # Memory Interchange Format (MIF)
 
-A vendor-neutral JSON schema for portable AI agent memories.
+**Your AI agent has 6 months of memories in System A. You want to try System B. Without MIF, you lose everything. With MIF:**
 
-## The Problem
+```bash
+pip install mif-tools
+mif convert mem0_export.json --to shodh -o memories.mif.json
+```
 
-30+ AI memory systems exist — mem0, Zep, Cognee, Letta, basic-memory, shodh-memory, and more. Each stores fundamentally the same data (id, content, timestamp, type, metadata) in incompatible formats. There is no way to move memories between systems.
+Done. Your memories are portable.
 
-**MIF solves memory portability.** Like vCard for contacts or iCalendar for events — a minimal envelope so memories can move between providers.
+## What is MIF?
 
-## What MIF Is
+A vendor-neutral JSON envelope for AI agent memories. Like vCard for contacts or iCalendar for events — a minimal schema so memories move between providers without data loss.
 
-- A JSON schema for exporting and importing AI agent memories
-- A minimal core: `id`, `content`, `created_at` — that's it for a valid memory
-- Optional knowledge graph support for systems that track entity relationships
-- Vendor extensions so systems preserve proprietary metadata without polluting the core
-- Privacy/PII redaction built into the export metadata
-
-## What MIF Is Not
-
-- Not a specification for how memory systems work internally
-- Not a database format or storage engine
-- Not opinionated about retrieval, embeddings, or ranking strategies
-
-## Quick Example
-
-A minimal conforming MIF document:
+**3 required fields.** That's it.
 
 ```json
 {
@@ -39,64 +28,132 @@ A minimal conforming MIF document:
 }
 ```
 
-A full document can include memory types, entities, embeddings, knowledge graph, vendor extensions, and privacy metadata. See [examples/](./examples/) for complete samples.
+Everything else — memory types, tags, entities, embeddings, knowledge graph, vendor extensions — is optional. Add what you have, ignore what you don't.
 
-## Specification
+## Install
 
-The full specification is in [`spec/mif-v2.md`](./spec/mif-v2.md).
+```bash
+pip install mif-tools              # core (zero dependencies)
+pip install mif-tools[validate]    # with JSON Schema validation
+```
 
-Key sections:
-- **Memory Object** — required and optional fields
-- **Knowledge Graph** — optional entity and relationship data
-- **Vendor Extensions** — system-specific metadata preservation
-- **Privacy** — PII detection and redaction
-- **Import Behavior** — UUID preservation, deduplication, partial failure tolerance
+## Convert Between Formats
 
-## JSON Schema
+```bash
+# mem0 → MIF
+mif convert mem0_export.json --from mem0 -o memories.mif.json
 
-Validate MIF documents against [`schema/mif-v2.schema.json`](./schema/mif-v2.schema.json).
+# MIF → Markdown (Obsidian/Letta style)
+mif convert memories.mif.json --to markdown -o memories.md
 
-## Adapters
+# Auto-detect source format
+mif convert any_memory_file.json -o output.mif.json
 
-Format adapters bridge existing memory systems to MIF:
+# Inspect any memory file
+mif inspect memories.json
 
-| System | Status | Location |
-|--------|--------|----------|
-| [shodh-memory](https://github.com/varun29ankuS/shodh-memory) | Production | Built-in (`/api/export/mif`, `/api/import/mif`) |
-| mem0 JSON | Production | [Rust adapter](https://github.com/varun29ankuS/shodh-memory/blob/main/src/mif/adapters/mem0.rs) |
-| Markdown (YAML frontmatter) | Production | [Rust adapter](https://github.com/varun29ankuS/shodh-memory/blob/main/src/mif/adapters/markdown.rs) |
-| Generic JSON | Production | [Rust adapter](https://github.com/varun29ankuS/shodh-memory/blob/main/src/mif/adapters/generic.rs) |
+# Validate MIF document
+mif validate memories.mif.json
+```
+
+## Python API
+
+```python
+from mif import load, dump, convert, MifDocument, Memory
+
+# Load from any format (auto-detects mem0, markdown, generic JSON, MIF)
+doc = load(open("mem0_export.json").read())
+print(f"{len(doc.memories)} memories loaded")
+
+# Convert between formats in one line
+markdown = convert(data, from_format="mem0", to_format="markdown")
+
+# Create memories from scratch
+doc = MifDocument(memories=[
+    Memory(
+        id="123e4567-e89b-12d3-a456-426614174000",
+        content="User prefers dark mode",
+        created_at="2026-01-15T10:30:00Z",
+        memory_type="observation",
+        tags=["preferences", "ui"],
+    )
+])
+print(dump(doc))  # MIF v2 JSON
+
+# Deep validation (UUIDs, references, timestamps, embedding dimensions)
+from mif import validate_deep
+ok, warnings = validate_deep(open("export.mif.json").read())
+```
+
+## Add MIF to Your MCP Server (10 lines)
+
+```python
+from mif import load, dump
+
+# Export handler
+def export_memories(user_id: str) -> str:
+    memories = my_storage.get_all(user_id)
+    return dump(memories)
+
+# Import handler — auto-detects mem0, markdown, generic JSON, MIF
+def import_memories(data: str) -> dict:
+    doc = load(data)
+    for mem in doc.memories:
+        my_storage.save(mem.id, mem.content, mem.created_at)
+    return {"memories_imported": len(doc.memories)}
+```
+
+## Supported Formats
+
+| Format | ID | Auto-detect | Description |
+|--------|----|-------------|-------------|
+| **MIF v2** | `shodh` | `"mif_version"` in JSON | Native format, lossless round-trip |
+| **mem0** | `mem0` | JSON array with `"memory"` field | mem0 memory exports |
+| **Generic JSON** | `generic` | JSON array with `"content"` field | Any JSON memory array |
+| **Markdown** | `markdown` | Starts with `---` | YAML frontmatter (Letta/Obsidian style) |
+
+## Full Spec
+
+MIF supports optional fields for rich memory data:
+
+- **Memory types** — `observation`, `decision`, `learning`, `error`, `context`, `conversation`, and custom types
+- **Entity references** — named entities with type and confidence
+- **Embeddings** — model name, dimensions, vector (reuse or regenerate)
+- **Knowledge graph** — entities and relationships with confidence scores
+- **Vendor extensions** — system-specific metadata preserved on round-trip
+- **Privacy** — PII detection and redaction markers
+
+Full specification: [`spec/mif-v2.md`](./spec/mif-v2.md) | JSON Schema: [`schema/mif-v2.schema.json`](./schema/mif-v2.schema.json)
+
+## Adapters & Implementations
+
+| System | Status | Type |
+|--------|--------|------|
+| [shodh-memory](https://github.com/varun29ankuS/shodh-memory) | Production | Built-in HTTP API (`/api/export/mif`, `/api/import/mif`) |
+| [mif-tools](https://pypi.org/project/mif-tools/) | Production | Python package with CLI |
+| mem0 | Adapter ready | Python + [Rust](https://github.com/varun29ankuS/shodh-memory/blob/main/src/mif/adapters/mem0.rs) |
+| Markdown (YAML frontmatter) | Adapter ready | Python + [Rust](https://github.com/varun29ankuS/shodh-memory/blob/main/src/mif/adapters/markdown.rs) |
+| Generic JSON | Adapter ready | Python + [Rust](https://github.com/varun29ankuS/shodh-memory/blob/main/src/mif/adapters/generic.rs) |
 | CrewAI | Planned | — |
 | LangChain | Planned | — |
 
 ## Design Principles
 
-1. **Minimal** — Only memories + optional graph. No todos, projects, or other concerns.
+1. **Minimal** — 3 required fields. Everything else is optional.
 2. **Extensible** — Unknown fields and vendor extensions MUST be preserved on round-trip.
 3. **Vendor-neutral** — The schema doesn't favor any implementation.
 4. **Forward-compatible** — Importers MUST ignore unknown fields.
 
 ## Contributing
 
-We welcome adapter implementations for any memory system. See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+We welcome adapter implementations for any memory system. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Related
 
 - [MCP SEP #2342](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2342) — Original proposal to the Model Context Protocol
 - [tower-mcp #531](https://github.com/joshrotenberg/tower-mcp/issues/531) — Tracking issue in tower-mcp
-- [shodh-memory](https://github.com/varun29ankuS/shodh-memory) — Reference implementation
-
-## Validation
-
-```bash
-pip install -r requirements.txt
-python validate.py examples/*.mif.json
-python tests/round_trip.py examples/*.mif.json
-```
-
-## Version Note
-
-MIF v2.0 is the first public release. The "v2" numbering reflects internal iterations during development in shodh-memory. There is no public v1 specification.
+- [shodh-memory](https://github.com/varun29ankuS/shodh-memory) — Reference implementation (Rust)
+- [mif-tools on PyPI](https://pypi.org/project/mif-tools/) — Python package
 
 ## License
 

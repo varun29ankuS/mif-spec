@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -161,3 +164,272 @@ def validate(data: str) -> tuple[bool, list[str]]:
         path = " -> ".join(str(p) for p in err.absolute_path) or "(root)"
         messages.append(f"[{path}] {err.message}")
     return False, messages
+
+
+# ---------------------------------------------------------------------------
+# ISO 8601 pattern — accepts the subset used by MIF (RFC-3339 / UTC offset)
+# Examples: 2024-01-15T10:30:00Z  2024-01-15T10:30:00.123456Z
+#           2024-01-15T10:30:00+05:30
+# ---------------------------------------------------------------------------
+_ISO8601_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}"           # date
+    r"[T ]"                          # separator
+    r"\d{2}:\d{2}:\d{2}"            # time
+    r"(\.\d+)?"                      # optional fractional seconds
+    r"(Z|[+-]\d{2}:\d{2})$",        # UTC marker or offset
+    re.ASCII,
+)
+
+
+def _is_valid_uuid(value: str) -> bool:
+    """Return True if *value* is a canonical UUID (any version)."""
+    try:
+        uuid.UUID(value)
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
+def _parse_iso8601(value: str) -> datetime | None:
+    """Parse an ISO 8601 timestamp; return None if unparseable."""
+    if not isinstance(value, str):
+        return None
+    if not _ISO8601_RE.match(value):
+        return None
+    # Normalise 'Z' → '+00:00' for fromisoformat (Python < 3.11 compat)
+    normalised = value.rstrip("Z")
+    if normalised != value:
+        normalised += "+00:00"
+    # Replace space separator with T
+    normalised = normalised.replace(" ", "T")
+    try:
+        return datetime.fromisoformat(normalised)
+    except ValueError:
+        return None
+
+
+def validate_deep(data: str) -> tuple[bool, list[str]]:
+    """Perform deep semantic validation of a MIF JSON document.
+
+    Checks performed (in addition to structural JSON parsing):
+
+    1. All memory ``id`` values are valid UUIDs.
+    2. All memory ``id`` values are unique within the document.
+    3. Every entry in ``related_memory_ids`` references a memory that
+       exists in the same document.
+    4. Every ``parent_id`` references a memory that exists in the document.
+    5. Every ``created_at`` timestamp is valid ISO 8601.
+    6. ``updated_at`` is chronologically after ``created_at`` when both
+       are present.
+    7. Knowledge-graph entity IDs are unique.
+    8. Knowledge-graph relationship ``source_entity_id`` and
+       ``target_entity_id`` reference entities that exist in the graph.
+    9. For every memory embedding, ``len(vector)`` equals ``dimensions``
+       when both are present.
+
+    Args:
+        data: JSON string representing a MIF v2 document.
+
+    Returns:
+        ``(True, [])`` when all checks pass, or
+        ``(False, [human-readable warning, ...])`` listing every violation
+        found.  All violations are collected before returning so callers
+        receive a complete picture in a single call.
+    """
+    try:
+        document = json.loads(data)
+    except json.JSONDecodeError as exc:
+        return False, [f"Invalid JSON: {exc}"]
+
+    if not isinstance(document, dict):
+        return False, ["Document root must be a JSON object."]
+
+    warnings: list[str] = []
+
+    memories: list[dict[str, Any]] = document.get("memories", [])
+    if not isinstance(memories, list):
+        # Structural issue — nothing meaningful to validate further.
+        return False, ["'memories' field must be a JSON array."]
+
+    # ------------------------------------------------------------------
+    # Build the set of known memory IDs (used for cross-reference checks)
+    # ------------------------------------------------------------------
+    seen_memory_ids: dict[str, int] = {}  # id → first index where seen
+
+    for idx, mem in enumerate(memories):
+        if not isinstance(mem, dict):
+            warnings.append(f"memories[{idx}]: entry is not a JSON object, skipping.")
+            continue
+
+        mem_id = mem.get("id")
+
+        # Check 1 — valid UUID
+        if mem_id is None:
+            warnings.append(f"memories[{idx}]: missing 'id' field.")
+        elif not isinstance(mem_id, str) or not _is_valid_uuid(mem_id):
+            warnings.append(
+                f"memories[{idx}]: 'id' value {mem_id!r} is not a valid UUID."
+            )
+        else:
+            # Check 2 — unique
+            if mem_id in seen_memory_ids:
+                warnings.append(
+                    f"memories[{idx}]: duplicate 'id' {mem_id!r} "
+                    f"(first seen at index {seen_memory_ids[mem_id]})."
+                )
+            else:
+                seen_memory_ids[mem_id] = idx
+
+    known_ids: set[str] = set(seen_memory_ids.keys())
+
+    # ------------------------------------------------------------------
+    # Per-memory semantic checks
+    # ------------------------------------------------------------------
+    for idx, mem in enumerate(memories):
+        if not isinstance(mem, dict):
+            continue  # already warned above
+
+        mem_label = f"memories[{idx}] (id={mem.get('id', '<missing>')!r})"
+
+        # Check 3 — related_memory_ids referential integrity
+        related: list = mem.get("related_memory_ids", [])
+        if isinstance(related, list):
+            for ref in related:
+                if not isinstance(ref, str):
+                    warnings.append(
+                        f"{mem_label}: related_memory_ids entry {ref!r} is not a string."
+                    )
+                elif ref not in known_ids:
+                    warnings.append(
+                        f"{mem_label}: related_memory_ids references unknown "
+                        f"memory id {ref!r}."
+                    )
+
+        # Check 4 — parent_id referential integrity
+        parent_id = mem.get("parent_id")
+        if parent_id is not None:
+            if not isinstance(parent_id, str):
+                warnings.append(
+                    f"{mem_label}: 'parent_id' must be a string, got {type(parent_id).__name__}."
+                )
+            elif parent_id not in known_ids:
+                warnings.append(
+                    f"{mem_label}: 'parent_id' references unknown memory id {parent_id!r}."
+                )
+
+        # Check 5 — created_at is valid ISO 8601
+        created_raw: Any = mem.get("created_at")
+        created_dt: datetime | None = None
+        if created_raw is not None:
+            created_dt = _parse_iso8601(created_raw)
+            if created_dt is None:
+                warnings.append(
+                    f"{mem_label}: 'created_at' value {created_raw!r} is not "
+                    f"valid ISO 8601 (expected format: YYYY-MM-DDTHH:MM:SSZ)."
+                )
+
+        # Check 6 — updated_at > created_at
+        updated_raw: Any = mem.get("updated_at")
+        if updated_raw is not None:
+            updated_dt = _parse_iso8601(updated_raw)
+            if updated_dt is None:
+                warnings.append(
+                    f"{mem_label}: 'updated_at' value {updated_raw!r} is not "
+                    f"valid ISO 8601."
+                )
+            elif created_dt is not None and updated_dt < created_dt:
+                warnings.append(
+                    f"{mem_label}: 'updated_at' ({updated_raw}) is before "
+                    f"'created_at' ({created_raw})."
+                )
+
+        # Check 9 — embedding vector length matches dimensions
+        embeddings: Any = mem.get("embeddings")
+        if isinstance(embeddings, dict):
+            dims: Any = embeddings.get("dimensions")
+            vector: Any = embeddings.get("vector")
+            if dims is not None and vector is not None:
+                if isinstance(vector, list) and isinstance(dims, int):
+                    if len(vector) != dims:
+                        warnings.append(
+                            f"{mem_label}: embedding 'vector' has {len(vector)} "
+                            f"elements but 'dimensions' is {dims}."
+                        )
+
+    # ------------------------------------------------------------------
+    # Knowledge graph checks (7 and 8)
+    # ------------------------------------------------------------------
+    kg: Any = document.get("knowledge_graph")
+    if isinstance(kg, dict):
+        entities: list = kg.get("entities", [])
+        relationships: list = kg.get("relationships", [])
+
+        # Check 7 — entity IDs are unique
+        seen_entity_ids: dict[str, int] = {}
+        for eidx, entity in enumerate(entities):
+            if not isinstance(entity, dict):
+                warnings.append(
+                    f"knowledge_graph.entities[{eidx}]: entry is not a JSON object."
+                )
+                continue
+            eid: Any = entity.get("id")
+            if eid is None:
+                warnings.append(
+                    f"knowledge_graph.entities[{eidx}]: missing 'id' field."
+                )
+            elif not isinstance(eid, str):
+                warnings.append(
+                    f"knowledge_graph.entities[{eidx}]: 'id' must be a string, "
+                    f"got {type(eid).__name__}."
+                )
+            elif eid in seen_entity_ids:
+                warnings.append(
+                    f"knowledge_graph.entities[{eidx}]: duplicate entity id "
+                    f"{eid!r} (first seen at index {seen_entity_ids[eid]})."
+                )
+            else:
+                seen_entity_ids[eid] = eidx
+
+        known_entity_ids: set[str] = set(seen_entity_ids.keys())
+
+        # Check 8 — relationship source/target reference existing entities
+        for ridx, rel in enumerate(relationships):
+            if not isinstance(rel, dict):
+                warnings.append(
+                    f"knowledge_graph.relationships[{ridx}]: entry is not a JSON object."
+                )
+                continue
+            rel_label = (
+                f"knowledge_graph.relationships[{ridx}] "
+                f"(id={rel.get('id', '<missing>')!r})"
+            )
+            src: Any = rel.get("source_entity_id")
+            tgt: Any = rel.get("target_entity_id")
+
+            if src is None:
+                warnings.append(f"{rel_label}: missing 'source_entity_id'.")
+            elif not isinstance(src, str):
+                warnings.append(
+                    f"{rel_label}: 'source_entity_id' must be a string."
+                )
+            elif src not in known_entity_ids:
+                warnings.append(
+                    f"{rel_label}: 'source_entity_id' {src!r} references an "
+                    f"entity that does not exist in knowledge_graph.entities."
+                )
+
+            if tgt is None:
+                warnings.append(f"{rel_label}: missing 'target_entity_id'.")
+            elif not isinstance(tgt, str):
+                warnings.append(
+                    f"{rel_label}: 'target_entity_id' must be a string."
+                )
+            elif tgt not in known_entity_ids:
+                warnings.append(
+                    f"{rel_label}: 'target_entity_id' {tgt!r} references an "
+                    f"entity that does not exist in knowledge_graph.entities."
+                )
+
+    if warnings:
+        return False, warnings
+    return True, []
