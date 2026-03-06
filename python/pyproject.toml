@@ -27,6 +27,7 @@ dependencies = []
 
 [project.optional-dependencies]
 validate = ["jsonschema>=4.20.0"]
+mcp = ["mcp>=1.0"]
 
 [project.scripts]
 mif = "mif.cli:main"

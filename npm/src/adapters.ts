@@ -369,3 +369,183 @@ function parseFrontmatter(fm: string): Record<string, string> {
   }
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// CrewAI adapter (LTMSQLiteStorage JSON export)
+// ---------------------------------------------------------------------------
+
+export class CrewAIAdapter implements MifAdapter {
+  name() { return "CrewAI"; }
+  formatId() { return "crewai"; }
+
+  detect(data: string): boolean {
+    const t = data.trimStart();
+    if (!t.startsWith("[")) return false;
+    return t.includes('"task_description"');
+  }
+
+  toMif(data: string): MifDocument {
+    const items: any[] = JSON.parse(data);
+    const memories: Memory[] = [];
+
+    for (const item of items) {
+      const content = item.task_description;
+      if (!content) continue;
+
+      // Parse metadata (may be JSON string or object)
+      let metadata: Record<string, unknown> = {};
+      const rawMeta = item.metadata;
+      if (typeof rawMeta === "string") {
+        try { metadata = JSON.parse(rawMeta); } catch { metadata = { raw: rawMeta }; }
+      } else if (rawMeta && typeof rawMeta === "object") {
+        metadata = { ...rawMeta };
+      }
+
+      // Parse datetime (Unix timestamp string or ISO)
+      let created_at: string;
+      const rawDt = item.datetime;
+      if (rawDt) {
+        const ts = parseFloat(rawDt);
+        if (!isNaN(ts)) {
+          created_at = new Date(ts * 1000).toISOString();
+        } else {
+          created_at = parseDate(String(rawDt));
+        }
+      } else {
+        created_at = parseDate(null);
+      }
+
+      // Preserve score in metadata
+      if (item.score != null) {
+        metadata.score = item.score;
+      }
+
+      memories.push({
+        id: ensureUuid(),
+        content,
+        memory_type: "observation",
+        created_at,
+        metadata,
+        source: { source_type: "crewai" },
+      });
+    }
+
+    return {
+      mif_version: "2.0",
+      memories,
+      generator: { name: "crewai-import", version: "1.0" },
+    };
+  }
+
+  fromMif(doc: MifDocument): string {
+    const items = doc.memories.map(m => {
+      const meta = { ...(m.metadata || {}) };
+      const score = meta.score;
+      delete meta.score;
+
+      const obj: any = {
+        task_description: m.content,
+        metadata: JSON.stringify(meta),
+        datetime: String(new Date(m.created_at).getTime() / 1000),
+      };
+      if (score != null) obj.score = score;
+      return obj;
+    });
+    return JSON.stringify(items, null, 2);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// LangChain / LangMem adapter
+// ---------------------------------------------------------------------------
+
+export class LangChainAdapter implements MifAdapter {
+  name() { return "LangChain"; }
+  formatId() { return "langchain"; }
+
+  detect(data: string): boolean {
+    const t = data.trimStart();
+    if (!t.startsWith("[")) return false;
+    return t.includes('"namespace"') && t.includes('"value"');
+  }
+
+  toMif(data: string): MifDocument {
+    const items: any[] = JSON.parse(data);
+    const memories: Memory[] = [];
+
+    const typeMap: Record<string, string> = {
+      memory: "observation",
+      fact: "learning",
+      preference: "observation",
+      note: "observation",
+    };
+
+    for (const item of items) {
+      const value = item.value;
+      let content: string;
+      let kind = "";
+
+      if (typeof value === "string") {
+        content = value;
+      } else if (value && typeof value === "object") {
+        content = value.content || "";
+        kind = value.kind || "";
+      } else {
+        continue;
+      }
+
+      if (!content) continue;
+
+      const rawType = kind.toLowerCase() || "observation";
+      const memoryType = typeMap[rawType] || rawType || "observation";
+
+      // Namespace → tags
+      const namespace = item.namespace;
+      const tags: string[] = Array.isArray(namespace) ? namespace.map(String) : [];
+
+      // Metadata
+      const metadata: Record<string, unknown> = {};
+      if (item.score != null) metadata.score = item.score;
+
+      memories.push({
+        id: ensureUuid(),
+        content,
+        memory_type: memoryType,
+        created_at: parseDate(item.created_at),
+        updated_at: item.updated_at ? parseDate(item.updated_at) : undefined,
+        tags,
+        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+        source: { source_type: "langchain" },
+        external_id: item.key || undefined,
+      });
+    }
+
+    return {
+      mif_version: "2.0",
+      memories,
+      generator: { name: "langchain-import", version: "1.0" },
+    };
+  }
+
+  fromMif(doc: MifDocument): string {
+    const items = doc.memories.map(m => {
+      const meta = { ...(m.metadata || {}) };
+      const score = meta.score;
+      delete meta.score;
+
+      const kind = (m.memory_type || "observation").charAt(0).toUpperCase()
+        + (m.memory_type || "observation").slice(1);
+
+      const obj: any = {
+        namespace: m.tags && m.tags.length > 0 ? m.tags : ["memories"],
+        key: m.external_id || m.id,
+        value: { kind, content: m.content },
+        created_at: m.created_at,
+      };
+      if (m.updated_at) obj.updated_at = m.updated_at;
+      if (score != null) obj.score = score;
+      return obj;
+    });
+    return JSON.stringify(items, null, 2);
+  }
+}

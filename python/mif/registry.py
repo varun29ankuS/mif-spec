@@ -14,6 +14,8 @@ from mif.adapters import (
     MifAdapter,
     ShodhAdapter,
     Mem0Adapter,
+    CrewAIAdapter,
+    LangChainAdapter,
     GenericJsonAdapter,
     MarkdownAdapter,
 )
@@ -34,6 +36,8 @@ class AdapterRegistry:
         self.adapters: list[MifAdapter] = [
             ShodhAdapter(),
             Mem0Adapter(),
+            CrewAIAdapter(),
+            LangChainAdapter(),
             GenericJsonAdapter(),
             MarkdownAdapter(),
         ]

@@ -445,3 +445,212 @@ def _parse_frontmatter(fm: str) -> dict[str, str]:
             if key:
                 result[key] = value
     return result
+
+
+# ---------------------------------------------------------------------------
+# CrewAI adapter (LTMSQLiteStorage JSON export)
+# ---------------------------------------------------------------------------
+
+class CrewAIAdapter(MifAdapter):
+    """Convert CrewAI long-term memory exports to/from MIF.
+
+    CrewAI's LTMSQLiteStorage stores rows with:
+      task_description, metadata (JSON string), datetime (Unix timestamp string), score
+    """
+
+    def name(self) -> str:
+        return "CrewAI"
+
+    def format_id(self) -> str:
+        return "crewai"
+
+    def detect(self, data: str) -> bool:
+        trimmed = data.lstrip()
+        if not trimmed.startswith("["):
+            return False
+        return '"task_description"' in trimmed
+
+    def to_mif(self, data: str) -> MifDocument:
+        items = json.loads(data)
+        if not isinstance(items, list):
+            raise ValueError("CrewAI format requires a JSON array")
+
+        memories = []
+        for item in items:
+            content = item.get("task_description", "")
+            if not content:
+                continue
+
+            # Parse metadata (may be JSON string or dict)
+            raw_meta = item.get("metadata", {})
+            if isinstance(raw_meta, str):
+                try:
+                    metadata = json.loads(raw_meta)
+                except (json.JSONDecodeError, TypeError):
+                    metadata = {"raw": raw_meta}
+            elif isinstance(raw_meta, dict):
+                metadata = dict(raw_meta)
+            else:
+                metadata = {}
+
+            # Parse datetime (Unix timestamp string or ISO)
+            raw_dt = item.get("datetime")
+            if raw_dt:
+                try:
+                    ts = float(raw_dt)
+                    created_at = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+                except (ValueError, TypeError, OSError):
+                    created_at = _parse_datetime(str(raw_dt))
+            else:
+                created_at = _parse_datetime(None)
+
+            # Preserve score in metadata
+            score = item.get("score")
+            if score is not None:
+                metadata["score"] = score
+
+            memories.append(Memory(
+                id=_ensure_uuid(None),
+                content=content,
+                memory_type="observation",
+                created_at=created_at,
+                metadata=metadata,
+                source=Source(source_type="crewai"),
+            ))
+
+        return MifDocument(
+            memories=memories,
+            generator={"name": "crewai-import", "version": "1.0"},
+        )
+
+    def from_mif(self, doc: MifDocument) -> str:
+        items = []
+        for m in doc.memories:
+            meta = dict(m.metadata) if m.metadata else {}
+            score = meta.pop("score", None)
+
+            obj: dict[str, Any] = {
+                "task_description": m.content,
+                "metadata": json.dumps(meta, ensure_ascii=False) if meta else "{}",
+                "datetime": str(datetime.fromisoformat(
+                    m.created_at.replace("Z", "+00:00")
+                ).timestamp()),
+            }
+            if score is not None:
+                obj["score"] = score
+
+            items.append(obj)
+        return json.dumps(items, indent=2, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# LangChain / LangMem adapter
+# ---------------------------------------------------------------------------
+
+class LangChainAdapter(MifAdapter):
+    """Convert LangChain/LangMem memory Item exports to/from MIF.
+
+    LangMem's Item format:
+      namespace (list[str]), key, value ({kind, content}),
+      created_at, updated_at, score
+    """
+
+    def name(self) -> str:
+        return "LangChain"
+
+    def format_id(self) -> str:
+        return "langchain"
+
+    def detect(self, data: str) -> bool:
+        trimmed = data.lstrip()
+        if not trimmed.startswith("["):
+            return False
+        return '"namespace"' in trimmed and '"value"' in trimmed
+
+    def to_mif(self, data: str) -> MifDocument:
+        items = json.loads(data)
+        if not isinstance(items, list):
+            raise ValueError("LangChain format requires a JSON array")
+
+        memories = []
+        for item in items:
+            value = item.get("value", {})
+            if isinstance(value, str):
+                content = value
+            elif isinstance(value, dict):
+                content = value.get("content", "")
+            else:
+                continue
+
+            if not content:
+                continue
+
+            # Map kind → memory_type
+            kind = ""
+            if isinstance(value, dict):
+                kind = value.get("kind", "")
+            memory_type = kind.lower() if kind else "observation"
+            # Normalise known types
+            type_map = {
+                "memory": "observation",
+                "fact": "learning",
+                "preference": "observation",
+                "note": "observation",
+            }
+            memory_type = type_map.get(memory_type, memory_type) or "observation"
+
+            # Namespace → tags
+            namespace = item.get("namespace", [])
+            tags = [str(ns) for ns in namespace] if isinstance(namespace, list) else []
+
+            # Metadata
+            metadata: dict[str, Any] = {}
+            score = item.get("score")
+            if score is not None:
+                metadata["score"] = score
+
+            created_at = _parse_datetime(item.get("created_at"))
+            updated_at_raw = item.get("updated_at")
+            updated_at = _parse_datetime(updated_at_raw) if updated_at_raw else None
+
+            memories.append(Memory(
+                id=_ensure_uuid(None),
+                content=content,
+                memory_type=memory_type,
+                created_at=created_at,
+                updated_at=updated_at,
+                tags=tags,
+                metadata=metadata if metadata else None,
+                source=Source(source_type="langchain"),
+                external_id=item.get("key"),
+            ))
+
+        return MifDocument(
+            memories=memories,
+            generator={"name": "langchain-import", "version": "1.0"},
+        )
+
+    def from_mif(self, doc: MifDocument) -> str:
+        items = []
+        for m in doc.memories:
+            meta = dict(m.metadata) if m.metadata else {}
+            score = meta.pop("score", None)
+
+            kind = (m.memory_type or "observation").capitalize()
+
+            obj: dict[str, Any] = {
+                "namespace": m.tags if m.tags else ["memories"],
+                "key": m.external_id or m.id,
+                "value": {
+                    "kind": kind,
+                    "content": m.content,
+                },
+                "created_at": m.created_at,
+            }
+            if m.updated_at:
+                obj["updated_at"] = m.updated_at
+            if score is not None:
+                obj["score"] = score
+
+            items.append(obj)
+        return json.dumps(items, indent=2, ensure_ascii=False)

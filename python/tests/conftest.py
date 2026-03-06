@@ -194,3 +194,43 @@ def markdown_multi():
         "---\n"
         "Decided to use FastAPI.\n"
     )
+
+
+@pytest.fixture
+def crewai_json():
+    """A CrewAI LTMSQLiteStorage export."""
+    return json.dumps([
+        {
+            "task_description": "User prefers dark mode for all IDEs",
+            "metadata": json.dumps({"category": "preference", "tool": "vscode"}),
+            "datetime": "1718452800.0",
+            "score": 0.95,
+        },
+        {
+            "task_description": "Project uses PostgreSQL 16",
+            "metadata": json.dumps({"category": "fact"}),
+            "datetime": "1718539200.0",
+            "score": 0.88,
+        },
+    ])
+
+
+@pytest.fixture
+def langchain_json():
+    """A LangChain/LangMem Item export."""
+    return json.dumps([
+        {
+            "namespace": ["memories", "user-prefs"],
+            "key": "pref-dark-mode",
+            "value": {"kind": "Memory", "content": "User prefers dark mode"},
+            "created_at": "2025-06-15T12:00:00Z",
+            "updated_at": "2025-06-15T13:00:00Z",
+            "score": 0.9,
+        },
+        {
+            "namespace": ["memories"],
+            "key": "fact-postgres",
+            "value": {"kind": "Fact", "content": "Project uses PostgreSQL"},
+            "created_at": "2025-06-16T10:00:00Z",
+        },
+    ])

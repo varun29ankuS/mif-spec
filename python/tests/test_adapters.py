@@ -8,6 +8,8 @@ import pytest
 from mif.adapters import (
     ShodhAdapter,
     Mem0Adapter,
+    CrewAIAdapter,
+    LangChainAdapter,
     GenericJsonAdapter,
     MarkdownAdapter,
 )
@@ -592,3 +594,241 @@ class TestMarkdownAdapter:
     def test_to_mif_no_frontmatter(self):
         doc = self.adapter.to_mif("just plain text\nno frontmatter")
         assert doc.memories == []
+
+
+# ── CrewAIAdapter ────────────────────────────────────────────────────────
+
+class TestCrewAIAdapter:
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.adapter = CrewAIAdapter()
+
+    def test_name_and_format_id(self):
+        assert self.adapter.name() == "CrewAI"
+        assert self.adapter.format_id() == "crewai"
+
+    # ── detect ──
+
+    def test_detect_crewai(self, crewai_json):
+        assert self.adapter.detect(crewai_json) is True
+
+    def test_detect_rejects_mem0(self, mem0_json):
+        assert self.adapter.detect(mem0_json) is False
+
+    def test_detect_rejects_object(self):
+        assert self.adapter.detect('{"task_description": "test"}') is False
+
+    def test_detect_rejects_generic(self, generic_json):
+        assert self.adapter.detect(generic_json) is False
+
+    # ── to_mif ──
+
+    def test_to_mif_basic(self, crewai_json):
+        doc = self.adapter.to_mif(crewai_json)
+        assert len(doc.memories) == 2
+        assert doc.generator["name"] == "crewai-import"
+
+    def test_to_mif_content_mapped(self, crewai_json):
+        doc = self.adapter.to_mif(crewai_json)
+        assert doc.memories[0].content == "User prefers dark mode for all IDEs"
+
+    def test_to_mif_metadata_parsed(self, crewai_json):
+        doc = self.adapter.to_mif(crewai_json)
+        assert doc.memories[0].metadata["category"] == "preference"
+        assert doc.memories[0].metadata["tool"] == "vscode"
+
+    def test_to_mif_score_in_metadata(self, crewai_json):
+        doc = self.adapter.to_mif(crewai_json)
+        assert doc.memories[0].metadata["score"] == 0.95
+
+    def test_to_mif_datetime_unix(self, crewai_json):
+        doc = self.adapter.to_mif(crewai_json)
+        assert "2024-06-15" in doc.memories[0].created_at
+
+    def test_to_mif_source_set(self, crewai_json):
+        doc = self.adapter.to_mif(crewai_json)
+        assert doc.memories[0].source.source_type == "crewai"
+
+    def test_to_mif_memory_type_observation(self, crewai_json):
+        doc = self.adapter.to_mif(crewai_json)
+        assert doc.memories[0].memory_type == "observation"
+
+    def test_to_mif_metadata_as_dict(self):
+        data = json.dumps([{
+            "task_description": "Test",
+            "metadata": {"key": "value"},
+        }])
+        doc = self.adapter.to_mif(data)
+        assert doc.memories[0].metadata["key"] == "value"
+
+    def test_to_mif_metadata_invalid_json(self):
+        data = json.dumps([{
+            "task_description": "Test",
+            "metadata": "not json",
+        }])
+        doc = self.adapter.to_mif(data)
+        assert doc.memories[0].metadata["raw"] == "not json"
+
+    def test_to_mif_skips_empty(self):
+        data = json.dumps([
+            {"task_description": ""},
+            {"task_description": "real"},
+        ])
+        doc = self.adapter.to_mif(data)
+        assert len(doc.memories) == 1
+
+    def test_to_mif_non_array_raises(self):
+        with pytest.raises(ValueError, match="JSON array"):
+            self.adapter.to_mif('{"task_description": "test"}')
+
+    def test_to_mif_generates_uuid(self, crewai_json):
+        doc = self.adapter.to_mif(crewai_json)
+        uuid.UUID(doc.memories[0].id)
+
+    # ── from_mif ──
+
+    def test_from_mif_basic(self, sample_mif_doc):
+        output = self.adapter.from_mif(sample_mif_doc)
+        items = json.loads(output)
+        assert isinstance(items, list)
+        assert len(items) == 1
+        assert "task_description" in items[0]
+        assert "datetime" in items[0]
+
+    def test_from_mif_roundtrip(self, crewai_json):
+        doc = self.adapter.to_mif(crewai_json)
+        output = self.adapter.from_mif(doc)
+        items = json.loads(output)
+        assert len(items) == 2
+        assert items[0]["task_description"] == "User prefers dark mode for all IDEs"
+
+    def test_from_mif_empty(self):
+        doc = MifDocument(memories=[])
+        output = self.adapter.from_mif(doc)
+        assert json.loads(output) == []
+
+
+# ── LangChainAdapter ─────────────────────────────────────────────────────
+
+class TestLangChainAdapter:
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.adapter = LangChainAdapter()
+
+    def test_name_and_format_id(self):
+        assert self.adapter.name() == "LangChain"
+        assert self.adapter.format_id() == "langchain"
+
+    # ── detect ──
+
+    def test_detect_langchain(self, langchain_json):
+        assert self.adapter.detect(langchain_json) is True
+
+    def test_detect_rejects_mem0(self, mem0_json):
+        assert self.adapter.detect(mem0_json) is False
+
+    def test_detect_rejects_object(self):
+        assert self.adapter.detect('{"namespace": [], "value": {}}') is False
+
+    def test_detect_rejects_generic(self, generic_json):
+        assert self.adapter.detect(generic_json) is False
+
+    # ── to_mif ──
+
+    def test_to_mif_basic(self, langchain_json):
+        doc = self.adapter.to_mif(langchain_json)
+        assert len(doc.memories) == 2
+        assert doc.generator["name"] == "langchain-import"
+
+    def test_to_mif_content_from_value(self, langchain_json):
+        doc = self.adapter.to_mif(langchain_json)
+        assert doc.memories[0].content == "User prefers dark mode"
+
+    def test_to_mif_kind_to_memory_type(self, langchain_json):
+        doc = self.adapter.to_mif(langchain_json)
+        assert doc.memories[0].memory_type == "observation"  # "Memory" → observation
+        assert doc.memories[1].memory_type == "learning"  # "Fact" → learning
+
+    def test_to_mif_namespace_to_tags(self, langchain_json):
+        doc = self.adapter.to_mif(langchain_json)
+        assert doc.memories[0].tags == ["memories", "user-prefs"]
+
+    def test_to_mif_key_to_external_id(self, langchain_json):
+        doc = self.adapter.to_mif(langchain_json)
+        assert doc.memories[0].external_id == "pref-dark-mode"
+
+    def test_to_mif_score_in_metadata(self, langchain_json):
+        doc = self.adapter.to_mif(langchain_json)
+        assert doc.memories[0].metadata["score"] == 0.9
+
+    def test_to_mif_updated_at(self, langchain_json):
+        doc = self.adapter.to_mif(langchain_json)
+        assert doc.memories[0].updated_at is not None
+        assert "2025-06-15" in doc.memories[0].updated_at
+
+    def test_to_mif_source_set(self, langchain_json):
+        doc = self.adapter.to_mif(langchain_json)
+        assert doc.memories[0].source.source_type == "langchain"
+
+    def test_to_mif_value_as_string(self):
+        data = json.dumps([{
+            "namespace": ["test"],
+            "key": "k1",
+            "value": "plain text content",
+            "created_at": "2025-01-01T00:00:00Z",
+        }])
+        doc = self.adapter.to_mif(data)
+        assert doc.memories[0].content == "plain text content"
+
+    def test_to_mif_skips_empty_content(self):
+        data = json.dumps([
+            {"namespace": [], "key": "k1", "value": {"content": ""}},
+            {"namespace": [], "key": "k2", "value": {"content": "real"}},
+        ])
+        doc = self.adapter.to_mif(data)
+        assert len(doc.memories) == 1
+
+    def test_to_mif_non_array_raises(self):
+        with pytest.raises(ValueError, match="JSON array"):
+            self.adapter.to_mif('{"namespace": [], "value": {}}')
+
+    def test_to_mif_generates_uuid(self, langchain_json):
+        doc = self.adapter.to_mif(langchain_json)
+        uuid.UUID(doc.memories[0].id)
+
+    # ── from_mif ──
+
+    def test_from_mif_basic(self, sample_mif_doc):
+        output = self.adapter.from_mif(sample_mif_doc)
+        items = json.loads(output)
+        assert isinstance(items, list)
+        assert len(items) == 1
+        assert "namespace" in items[0]
+        assert "key" in items[0]
+        assert "value" in items[0]
+
+    def test_from_mif_value_structure(self, sample_mif_doc):
+        output = self.adapter.from_mif(sample_mif_doc)
+        items = json.loads(output)
+        assert "kind" in items[0]["value"]
+        assert "content" in items[0]["value"]
+
+    def test_from_mif_default_namespace(self):
+        doc = MifDocument(memories=[
+            Memory(id=str(uuid.uuid4()), content="x", created_at="2025-01-01T00:00:00Z"),
+        ])
+        output = self.adapter.from_mif(doc)
+        items = json.loads(output)
+        assert items[0]["namespace"] == ["memories"]
+
+    def test_from_mif_roundtrip(self, langchain_json):
+        doc = self.adapter.to_mif(langchain_json)
+        output = self.adapter.from_mif(doc)
+        items = json.loads(output)
+        assert len(items) == 2
+        assert items[0]["value"]["content"] == "User prefers dark mode"
+
+    def test_from_mif_empty(self):
+        doc = MifDocument(memories=[])
+        output = self.adapter.from_mif(doc)
+        assert json.loads(output) == []
