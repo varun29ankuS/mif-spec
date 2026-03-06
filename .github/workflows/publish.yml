@@ -33,36 +33,5 @@ jobs:
         with:
           packages-dir: python/dist/
 
-  publish-npm:
-    name: Publish to npm
-    runs-on: ubuntu-latest
-    environment:
-      name: npm
-      url: https://www.npmjs.com/package/@varunshodh/mif-tools
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install dependencies
-        working-directory: npm
-        run: npm install
-
-      - name: Build
-        working-directory: npm
-        run: npm run build
-
-      - name: Run tests
-        working-directory: npm
-        run: npm test
-
-      - name: Publish to npm
-        working-directory: npm
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
-          npm publish --access public
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+  # npm publish requires manual: cd npm && npm publish --access public
+  # (npm granular tokens don't support scoped package CI publishing)
